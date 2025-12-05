@@ -60,9 +60,8 @@ jobs:
             echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
           fi
 
-      - name: Configure AWS OIDC
+      - name: AWS OIDC
         continue-on-error: true
-        if: secrets.AWS_ACCESS_KEY_ID == '' && secrets.AWS_ROLE_TO_ASSUME != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
