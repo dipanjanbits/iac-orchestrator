@@ -76,6 +76,16 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Clean Terraform Cache
+        shell: bash
+        run: |
+          echo "Cleaning any cached Terraform files..."
+          find . -type d -name ".terraform" -exec rm -rf {} + 2>/dev/null || true
+          find . -type f -name "terraform.tfvars.json" -delete 2>/dev/null || true
+          find . -type f -name "backend.hcl" -delete 2>/dev/null || true
+          find . -type f -name ".terraform.lock.hcl" -delete 2>/dev/null || true
+          echo "CI/CD mode check: GITHUB_ACTIONS=$GITHUB_ACTIONS"
+
       - name: Run Terraform Plan
         run: python orchestrator.py -e ${{ matrix.environment }} -a plan
 
