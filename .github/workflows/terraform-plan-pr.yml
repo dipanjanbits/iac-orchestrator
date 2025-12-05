@@ -50,6 +50,7 @@ jobs:
             echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
             echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
             echo "AWS_DEFAULT_REGION=${{ secrets.AWS_REGION || 'us-east-1' }}" >> $GITHUB_ENV
+            echo "✓ AWS credentials configured"
           fi
           
           # Configure Azure
@@ -58,14 +59,16 @@ jobs:
             echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> $GITHUB_ENV
             echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
             echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
+            echo "✓ Azure credentials configured"
           fi
 
-      - name: AWS OIDC
-        continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      # AWS OIDC - Only use if you have OIDC setup with role
+      # - name: AWS OIDC
+      #   continue-on-error: true
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      #     aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
       - name: Configure GCP Credentials
         continue-on-error: true
