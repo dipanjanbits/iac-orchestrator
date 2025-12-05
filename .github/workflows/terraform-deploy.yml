@@ -64,6 +64,7 @@ jobs:
 
       - name: Configure AWS Credentials (Method 1: Access Keys)
         if: secrets.AWS_ACCESS_KEY_ID != ''
+        continue-on-error: true
         run: |
           echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
@@ -72,26 +73,33 @@ jobs:
 
       - name: Configure AWS Credentials (Method 2: IAM Role - OIDC)
         if: secrets.AWS_ACCESS_KEY_ID == '' && secrets.AWS_ROLE_TO_ASSUME != ''
+        continue-on-error: true
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
       - name: Configure Azure Credentials
+        continue-on-error: true
         run: |
-          echo "Configuring Azure credentials..."
-          # Set Azure environment variables from secrets
-          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
+          if [[ ! -z "${{ secrets.AZURE_CLIENT_ID }}" ]]; then
+            echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
+            echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> $GITHUB_ENV
+            echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
+            echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
+            echo "✓ Azure credentials configured"
+          else
+            echo "⚠️  Azure credentials not configured (optional)"
+          fi
 
       - name: Configure GCP Credentials
+        continue-on-error: true
         uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Setup GCP Cloud SDK
+        continue-on-error: true
         uses: google-github-actions/setup-gcloud@v1
 
       - name: Parse Inputs
