@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Multi-Cloud Terraform Orchestrator
-Deploys infrastructure across AWS, Azure, and GCP using a single parameter file
+Multi-Cloud Terraform Orchestrator - CI/CD Compatible
+Updates to handle both local and CI/CD environments
 """
 
 import subprocess
@@ -16,11 +16,24 @@ class MultiCloudOrchestrator:
         self.params_file = params_file
         self.env = env
         self.action = action
-        self.selected_clouds = clouds  # Filter specific clouds
-        self.selected_modules = modules  # Filter specific modules
+        self.selected_clouds = clouds
+        self.selected_modules = modules
         self.params = self.load_parameters()
         self.results = {}
+        self.is_cicd = self.detect_cicd_environment()
         
+    def detect_cicd_environment(self):
+        """Detect if running in CI/CD environment"""
+        cicd_indicators = [
+            'CI',
+            'GITHUB_ACTIONS',
+            'GITLAB_CI',
+            'JENKINS_HOME',
+            'CIRCLECI',
+            'TRAVIS'
+        ]
+        return any(os.getenv(indicator) for indicator in cicd_indicators)
+    
     def load_parameters(self):
         """Load parameters from JSON file"""
         with open(self.params_file, 'r') as f:
@@ -33,8 +46,14 @@ class MultiCloudOrchestrator:
     
     def generate_tfvars(self, cloud, module, module_config):
         """Generate terraform.tfvars content for specific cloud and module"""
-        common = self.params['common']
+        common = self.params['common'].copy()
         cloud_params = self.params[cloud].copy()
+        
+        # In CI/CD, remove profile parameters as we use environment variables
+        if self.is_cicd:
+            print(f"Running in CI/CD environment - using environment variables for authentication")
+            common.pop('aws_profile', None)
+            cloud_params.pop('aws_profile', None)
         
         # Merge common and cloud-specific params
         tfvars = {**common, **cloud_params}
@@ -61,56 +80,51 @@ class MultiCloudOrchestrator:
         return tfvars_file
     
     def write_backend_config(self, cloud, module):
-        """Write backend configuration file for S3 remote state"""
-        backend_config = self.params.get('backend', {})
-        
-        if not backend_config.get('enabled', False):
+        """Generate backend.hcl for S3 remote state"""
+        if 'backend' not in self.params or not self.params['backend'].get('enabled', False):
             return None
         
+        backend_config = self.params['backend']
         module_path = Path(cloud) / module
         backend_file = module_path / 'backend.hcl'
         
-        # Single state file per CSP: <cloud>/<environment>/terraform.tfstate
-        state_key = f"{cloud}/{self.env}/terraform.tfstate"
+        # Build state key
+        state_key = f"{cloud}/{self.env}/{module}/terraform.tfstate"
         
-        backend_hcl = {
-            'bucket': backend_config['s3_bucket'],
-            'key': state_key,
-            'region': backend_config['s3_region'],
-            'encrypt': backend_config.get('encrypt', True),
-            'workspace_key_prefix': f"{cloud}/{self.env}"
-        }
+        # Backend configuration - conditionally include profile
+        backend_hcl_content = f"""bucket         = "{backend_config['s3_bucket']}"
+key            = "{state_key}"
+region         = "{backend_config['s3_region']}"
+encrypt        = {str(backend_config.get('encrypt', True)).lower()}
+dynamodb_table = "{backend_config['dynamodb_table']}"
+"""
         
-        # Add optional parameters if specified
-        if 'dynamodb_table' in backend_config:
-            backend_hcl['dynamodb_table'] = backend_config['dynamodb_table']
+        # Only add profile for local environments (not CI/CD)
+        if not self.is_cicd and 'profile' in backend_config:
+            backend_hcl_content += f'profile        = "{backend_config["profile"]}"\n'
+        else:
+            print(f"ℹ CI/CD detected - skipping profile in backend config (using environment variables)")
         
-        if 'profile' in backend_config:
-            backend_hcl['profile'] = backend_config['profile']
-        
-        if 'kms_key_id' in backend_config:
-            backend_hcl['kms_key_id'] = backend_config['kms_key_id']
-        
-        # Write backend config in HCL format
         with open(backend_file, 'w') as f:
-            for key, value in backend_hcl.items():
-                if isinstance(value, bool):
-                    f.write(f'{key} = {str(value).lower()}\n')
-                else:
-                    f.write(f'{key} = "{value}"\n')
+            f.write(backend_hcl_content)
         
         print(f"✓ Generated backend config for {cloud}/{module}")
         return backend_file
     
     def write_root_tfvars(self):
         """Write root-level terraform.tfvars.json for provider configuration"""
-        common = self.params['common']
+        common = self.params['common'].copy()
+        
+        # In CI/CD, remove profile parameters
+        if self.is_cicd:
+            common.pop('aws_profile', None)
+        
         root_tfvars_file = Path('terraform.tfvars.json')
         
         with open(root_tfvars_file, 'w') as f:
             json.dump(common, f, indent=2)
         
-        print(f"✓ Generated root terraform.tfvars.json")
+        print(f"✓ Generated root terraform.tfvars.json (CI/CD mode: {self.is_cicd})")
         return root_tfvars_file
     
     def run_terraform(self, cloud, module):
@@ -121,22 +135,23 @@ class MultiCloudOrchestrator:
             print(f"⚠ Module path {module_path} does not exist, skipping...")
             return {'status': 'skipped', 'reason': 'path_not_found'}
         
-        os.chdir(module_path)
+        original_dir = os.getcwd()
         
         try:
-            # Initialize with backend config if available
-            print(f"\n{'='*60}")
-            print(f"Initializing {cloud}/{module}...")
-            print(f"{'='*60}")
-            
-            init_cmd = ['terraform', 'init']
+            os.chdir(module_path)
             
             # Check if backend config exists
             backend_file = Path('backend.hcl')
+            init_cmd = ['terraform', 'init']
+            
             if backend_file.exists():
                 init_cmd.extend(['-backend-config=backend.hcl'])
-                print(f"  Using S3 backend configuration")
             
+            # Initialize
+            print(f"\n{'='*60}")
+            print(f"Initializing {cloud}/{module}...")
+            print(f"Command: {' '.join(init_cmd)}")
+            print(f"{'='*60}")
             subprocess.run(init_cmd, check=True)
             
             # Validate
@@ -146,22 +161,13 @@ class MultiCloudOrchestrator:
             # Plan or Apply
             if self.action == 'plan':
                 print(f"\nPlanning {cloud}/{module}...")
-                result = subprocess.run(
-                    ['terraform', 'plan', '-out=tfplan'],
-                    check=True
-                )
+                subprocess.run(['terraform', 'plan', '-out=tfplan'], check=True)
             elif self.action == 'apply':
                 print(f"\nApplying {cloud}/{module}...")
-                result = subprocess.run(
-                    ['terraform', 'apply', '-auto-approve'],
-                    check=True
-                )
+                subprocess.run(['terraform', 'apply', '-auto-approve'], check=True)
             elif self.action == 'destroy':
                 print(f"\nDestroying {cloud}/{module}...")
-                result = subprocess.run(
-                    ['terraform', 'destroy', '-auto-approve'],
-                    check=True
-                )
+                subprocess.run(['terraform', 'destroy', '-auto-approve'], check=True)
             
             return {'status': 'success', 'cloud': cloud, 'module': module}
             
@@ -169,7 +175,7 @@ class MultiCloudOrchestrator:
             print(f"✗ Error in {cloud}/{module}: {e}")
             return {'status': 'failed', 'cloud': cloud, 'module': module, 'error': str(e)}
         finally:
-            os.chdir('../..')
+            os.chdir(original_dir)
     
     def orchestrate(self):
         """Main orchestration logic"""
@@ -177,16 +183,19 @@ class MultiCloudOrchestrator:
         print(f"Multi-Cloud Deployment Orchestrator")
         print(f"Environment: {self.env}")
         print(f"Action: {self.action}")
+        print(f"CI/CD Mode: {self.is_cicd}")
         if self.selected_clouds:
             print(f"Clouds: {', '.join(self.selected_clouds)}")
         if self.selected_modules:
             print(f"Modules: {', '.join(self.selected_modules)}")
         print(f"{'#'*60}\n")
         
+        # Write root-level tfvars for provider configuration
+        self.write_root_tfvars()
+        
         clouds = ['aws', 'azure', 'gcp']
         
         for cloud in clouds:
-            # Skip if cloud not selected
             if self.selected_clouds and cloud not in self.selected_clouds:
                 print(f"⊗ {cloud.upper()} not selected, skipping...")
                 continue
@@ -203,7 +212,6 @@ class MultiCloudOrchestrator:
             
             modules = cloud_config.get('modules', {})
             if isinstance(modules, list):
-                # Old format support
                 modules = {m: {} for m in modules}
                 
             print(f"\n{'='*60}")
@@ -211,18 +219,15 @@ class MultiCloudOrchestrator:
             print(f"{'='*60}")
             
             for module, module_config in modules.items():
-                # Skip if module not selected
                 if self.selected_modules and module not in self.selected_modules:
                     print(f"⊗ Module '{module}' not selected, skipping...")
                     continue
                     
                 print(f"\n→ Processing module: {module}")
                 
-                # Generate and write tfvars
+                # Generate and write configurations
                 tfvars = self.generate_tfvars(cloud, module, module_config)
                 self.write_tfvars(cloud, module, tfvars)
-                
-                # Generate backend configuration
                 self.write_backend_config(cloud, module)
                 
                 # Run terraform
@@ -257,50 +262,14 @@ class MultiCloudOrchestrator:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Multi-Cloud Terraform Orchestrator',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Deploy only AWS in dev environment
-  python orchestrator.py -e dev -c aws -a apply
-  
-  # Deploy AWS and Azure, only network module
-  python orchestrator.py -e dev -c aws azure -m network -a plan
-  
-  # Deploy all clouds, only compute module
-  python orchestrator.py -e prod -m compute -a apply
-  
-  # Deploy specific cloud and module
-  python orchestrator.py -e dev -c gcp -m network compute -a plan
-        """
+        description='Multi-Cloud Terraform Orchestrator (CI/CD Compatible)',
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument(
-        '-e', '--environment',
-        required=True,
-        help='Environment to deploy (dev, prod, etc.)'
-    )
-    parser.add_argument(
-        '-a', '--action',
-        choices=['plan', 'apply', 'destroy'],
-        default='plan',
-        help='Terraform action to perform (default: plan)'
-    )
-    parser.add_argument(
-        '-p', '--params-file',
-        default='parameters.json',
-        help='Path to parameters file (default: parameters.json)'
-    )
-    parser.add_argument(
-        '-c', '--clouds',
-        nargs='+',
-        choices=['aws', 'azure', 'gcp'],
-        help='Specific cloud(s) to deploy (e.g., -c aws azure). If not specified, deploys to all enabled clouds.'
-    )
-    parser.add_argument(
-        '-m', '--modules',
-        nargs='+',
-        help='Specific module(s) to deploy (e.g., -m network compute). If not specified, deploys all modules.'
-    )
+    parser.add_argument('-e', '--environment', required=True, help='Environment (dev, prod, etc.)')
+    parser.add_argument('-a', '--action', choices=['plan', 'apply', 'destroy'], default='plan')
+    parser.add_argument('-p', '--params-file', default='parameters.json')
+    parser.add_argument('-c', '--clouds', nargs='+', choices=['aws', 'azure', 'gcp'])
+    parser.add_argument('-m', '--modules', nargs='+')
     
     args = parser.parse_args()
     
