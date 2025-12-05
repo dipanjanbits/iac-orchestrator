@@ -1,246 +1,136 @@
-name: 'Terraform Multi-Cloud Deployment'
+# .github/workflows/deploy.yml
+name: Deploy Multi-Cloud Infrastructure
 
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to deploy to'
+        description: 'Environment to deploy'
         required: true
         type: choice
         options:
           - dev
           - prod
+          - staging
+      
       action:
-        description: 'Terraform action to perform'
+        description: 'Terraform action'
         required: true
         type: choice
         options:
           - plan
           - apply
           - destroy
+      
       clouds:
-        description: 'Cloud provider(s) to deploy to (comma-separated: aws,azure,gcp or leave empty for all enabled)'
+        description: 'Cloud providers (comma-separated: aws,azure,gcp)'
         required: false
-        type: string
-        default: ''
+        default: 'aws'
+      
       modules:
-        description: 'Module(s) to deploy (comma-separated: network,compute or leave empty for all)'
+        description: 'Modules to deploy (comma-separated: network,compute)'
         required: false
-        type: string
-        default: ''
-      skip_validation:
-        description: 'Skip terraform validation step'
-        required: false
-        type: boolean
-        default: false
-      dry_run:
-        description: 'Dry run mode (plan only, no apply/destroy)'
+        default: 'compute'
+      
+      auto_approve:
+        description: 'Auto-approve apply/destroy'
         required: false
         type: boolean
         default: false
 
-permissions:
-  contents: read
-  id-token: write
+env:
+  TF_VERSION: '1.9.0'
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  terraform-deploy:
-    name: 'Terraform Deploy'
+  deploy:
+    name: Deploy Infrastructure
     runs-on: ubuntu-latest
     
+    # IMPORTANT: Add these permissions for OIDC
+    permissions:
+      id-token: write
+      contents: read
+    
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
-
+      
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
+          python-version: ${{ env.PYTHON_VERSION }}
+      
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: latest
-
-      - name: Configure Cloud Credentials
-        shell: bash
-        run: |
-          # Configure AWS
-          if [[ ! -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]]; then
-            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
-            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
-            echo "AWS_DEFAULT_REGION=${{ secrets.AWS_REGION || 'us-east-1' }}" >> $GITHUB_ENV
-          fi
-          
-          # Configure Azure
-          if [[ ! -z "${{ secrets.AZURE_CLIENT_ID }}" ]]; then
-            echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
-            echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> $GITHUB_ENV
-            echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-            echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
-          fi
-
-      - name: AWS OIDC
-        continue-on-error: true
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      # METHOD 1: Using AWS Access Keys (Simple but less secure)
+      # Uncomment if using access keys
+      # - name: Configure AWS Credentials (Access Keys)
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #     aws-region: ${{ secrets.AWS_REGION }}
+      
+      # METHOD 2: Using OIDC with IAM Role (Recommended - More Secure)
+      # Comment out if using access keys
+      - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
-
-      - name: Configure GCP Credentials
-        continue-on-error: true
-        uses: google-github-actions/auth@v1
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Setup GCP Cloud SDK
-        continue-on-error: true
-        uses: google-github-actions/setup-gcloud@v1
-
-      - name: Parse Inputs
-        id: parse
-        shell: bash
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
+      
+      - name: Verify AWS Identity
         run: |
-          set -e
-          
-          # Parse clouds input
-          if [[ -z "${{ github.event.inputs.clouds }}" ]]; then
-            CLOUDS=""
-            echo "clouds=" >> $GITHUB_OUTPUT
-          else
-            CLOUDS=$(echo "${{ github.event.inputs.clouds }}" | tr ',' ' ')
-            echo "clouds=$CLOUDS" >> $GITHUB_OUTPUT
-          fi
-          
-          # Parse modules input
-          if [[ -z "${{ github.event.inputs.modules }}" ]]; then
-            MODULES=""
-            echo "modules=" >> $GITHUB_OUTPUT
-          else
-            MODULES=$(echo "${{ github.event.inputs.modules }}" | tr ',' ' ')
-            echo "modules=$MODULES" >> $GITHUB_OUTPUT
-          fi
-          
-          # Determine action (respect dry_run flag)
-          ACTION="${{ github.event.inputs.action }}"
-          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]] && [[ "$ACTION" != "plan" ]]; then
-            echo "action=plan" >> $GITHUB_OUTPUT
-            echo "DRY_RUN=true" >> $GITHUB_OUTPUT
-            echo "dry_run_notice=⚠️ DRY RUN MODE: Running 'plan' instead of '$ACTION'" >> $GITHUB_OUTPUT
-          else
-            echo "action=$ACTION" >> $GITHUB_OUTPUT
-            echo "DRY_RUN=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Display Configuration
-        shell: bash
+          echo "Verifying AWS credentials..."
+          aws sts get-caller-identity
+      
+      - name: Prepare Environment
         run: |
-          echo "=========================================="
-          echo "Terraform Deployment Configuration"
-          echo "=========================================="
           echo "Environment: ${{ github.event.inputs.environment }}"
-          echo "Action: ${{ steps.parse.outputs.action }}"
-          echo "Clouds: ${{ steps.parse.outputs.clouds || 'All enabled clouds' }}"
-          echo "Modules: ${{ steps.parse.outputs.modules || 'All modules' }}"
-          echo "Skip Validation: ${{ github.event.inputs.skip_validation }}"
-          echo "Dry Run Mode: ${{ github.event.inputs.dry_run }}"
-          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
-            echo "${{ steps.parse.outputs.dry_run_notice }}"
-          fi
-          echo "Triggered by: ${{ github.actor }}"
-          echo "=========================================="
-
-      - name: Build Orchestrator Command
-        id: build-cmd
-        shell: bash
+          echo "Action: ${{ github.event.inputs.action }}"
+          echo "Clouds: ${{ github.event.inputs.clouds }}"
+          echo "Modules: ${{ github.event.inputs.modules }}"
+      
+      - name: Run Orchestrator
+        env:
+          # Set AWS credentials as environment variables for Terraform
+          AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+          AWS_REGION: ${{ env.AWS_REGION }}
         run: |
-          set -e
-          CMD="python orchestrator.py -e ${{ github.event.inputs.environment }} -a ${{ steps.parse.outputs.action }}"
+          # Parse clouds and modules
+          IFS=',' read -ra CLOUDS <<< "${{ github.event.inputs.clouds }}"
+          IFS=',' read -ra MODULES <<< "${{ github.event.inputs.modules }}"
           
-          if [[ ! -z "${{ steps.parse.outputs.clouds }}" ]]; then
-            CMD="$CMD -c ${{ steps.parse.outputs.clouds }}"
-          fi
+          # Build command
+          CMD="python orchestrator.py -e ${{ github.event.inputs.environment }} -a ${{ github.event.inputs.action }}"
           
-          if [[ ! -z "${{ steps.parse.outputs.modules }}" ]]; then
-            CMD="$CMD -m ${{ steps.parse.outputs.modules }}"
+          # Add clouds
+          if [ ${#CLOUDS[@]} -gt 0 ]; then
+            CMD="$CMD -c ${CLOUDS[*]}"
           fi
           
-          echo "cmd=$CMD" >> $GITHUB_OUTPUT
-          echo "Full command: $CMD"
-
-      - name: Validate Parameters
-        run: |
-          python3 << 'EOF'
-          import json
+          # Add modules
+          if [ ${#MODULES[@]} -gt 0 ]; then
+            CMD="$CMD -m ${MODULES[*]}"
+          fi
           
-          with open('parameters.json', 'r') as f:
-            params = json.load(f)
-          
-          env = '${{ github.event.inputs.environment }}'
-          
-          if env not in params['environments']:
-            print(f"❌ ERROR: Environment '{env}' not found in parameters.json")
-            print(f"Available environments: {', '.join(params['environments'].keys())}")
-            exit(1)
-          
-          print(f"✓ Environment '{env}' found")
-          
-          # Validate clouds if specified
-          if '${{ steps.parse.outputs.clouds }}':
-            clouds_input = '${{ steps.parse.outputs.clouds }}'.split()
-            for cloud in clouds_input:
-              if cloud not in params['environments'][env]:
-                print(f"❌ ERROR: Cloud '{cloud}' not configured for environment '{env}'")
-                exit(1)
-              print(f"✓ Cloud '{cloud}' configured")
-          
-          # Validate modules if specified
-          if '${{ steps.parse.outputs.modules }}':
-            modules_input = '${{ steps.parse.outputs.modules }}'.split()
-            env_config = params['environments'][env]
-            
-            for cloud in ['aws', 'azure', 'gcp']:
-              if cloud in env_config:
-                cloud_modules = env_config[cloud].get('modules', {})
-                for module in modules_input:
-                  if module not in cloud_modules:
-                    print(f"⚠️  WARNING: Module '{module}' not found in {cloud}")
-            
-            print(f"✓ Modules specified: {', '.join(modules_input)}")
-          
-          print("\n✓ All validations passed!")
-          EOF
-
-      - name: Run Terraform Orchestrator
-        run: ${{ steps.build-cmd.outputs.cmd }}
-
-      - name: Generate Plan Summary
-        if: success() && steps.parse.outputs.action == 'plan'
-        run: |
-          echo "## 📋 Terraform Plan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Action | ${{ steps.parse.outputs.action }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Clouds | ${{ steps.parse.outputs.clouds || 'All enabled' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Modules | ${{ steps.parse.outputs.modules || 'All modules' }} |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Post Deployment Status
-        if: success()
-        run: |
-          echo "## ✅ Deployment Status" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status**: Completed Successfully" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment**: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Action**: ${{ steps.parse.outputs.action }}" >> $GITHUB_STEP_SUMMARY
-
-      - name: Notify on Failure
-        if: failure()
-        run: |
-          echo "## ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status**: Failed" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment**: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Action**: ${{ steps.parse.outputs.action }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Check logs for details**" >> $GITHUB_STEP_SUMMARY
+          echo "Executing: $CMD"
+          eval $CMD
+      
+      - name: Upload Terraform Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-logs-${{ github.run_id }}
+          path: |
+            **/*.tfstate
+            **/*.tfplan
+            **/terraform.log
+          retention-days: 30
