@@ -19,8 +19,10 @@ terraform {
 
 # AWS Provider
 provider "aws" {
-  region  = var.aws_region
-  profile = var.aws_profile
+  region = var.aws_region
+  # Profile is only used in local development, not in CI/CD
+  # In CI/CD, AWS credentials come from environment variables
+  profile = var.aws_profile != "" ? var.aws_profile : null
 }
 
 # Azure Provider
@@ -44,9 +46,9 @@ variable "aws_region" {
 }
 
 variable "aws_profile" {
-  description = "AWS CLI profile"
+  description = "AWS CLI profile (optional, not used in CI/CD)"
   type        = string
-  default     = "default"
+  default     = ""
 }
 
 variable "azure_subscription_id" {
