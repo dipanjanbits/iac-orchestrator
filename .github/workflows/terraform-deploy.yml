@@ -96,28 +96,31 @@ jobs:
 
       - name: Parse Inputs
         id: parse
+        shell: bash
         run: |
+          set -e
+          
           # Parse clouds input
-          if [ -z "${{ github.event.inputs.clouds }}" ]; then
+          if [[ -z "${{ github.event.inputs.clouds }}" ]]; then
             CLOUDS=""
             echo "clouds=" >> $GITHUB_OUTPUT
           else
-            CLOUDS=$(echo "${{ github.event.inputs.clouds }}" | tr ',' '\n' | xargs)
+            CLOUDS=$(echo "${{ github.event.inputs.clouds }}" | tr ',' ' ')
             echo "clouds=$CLOUDS" >> $GITHUB_OUTPUT
           fi
           
           # Parse modules input
-          if [ -z "${{ github.event.inputs.modules }}" ]; then
+          if [[ -z "${{ github.event.inputs.modules }}" ]]; then
             MODULES=""
             echo "modules=" >> $GITHUB_OUTPUT
           else
-            MODULES=$(echo "${{ github.event.inputs.modules }}" | tr ',' '\n' | xargs)
+            MODULES=$(echo "${{ github.event.inputs.modules }}" | tr ',' ' ')
             echo "modules=$MODULES" >> $GITHUB_OUTPUT
           fi
           
           # Determine action (respect dry_run flag)
           ACTION="${{ github.event.inputs.action }}"
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ] && [ "$ACTION" != "plan" ]; then
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]] && [[ "$ACTION" != "plan" ]]; then
             echo "action=plan" >> $GITHUB_OUTPUT
             echo "DRY_RUN=true" >> $GITHUB_OUTPUT
             echo "dry_run_notice=⚠️ DRY RUN MODE: Running 'plan' instead of '$ACTION'" >> $GITHUB_OUTPUT
@@ -127,6 +130,7 @@ jobs:
           fi
 
       - name: Display Configuration
+        shell: bash
         run: |
           echo "=========================================="
           echo "Terraform Deployment Configuration"
@@ -137,7 +141,7 @@ jobs:
           echo "Modules: ${{ steps.parse.outputs.modules || 'All modules' }}"
           echo "Skip Validation: ${{ github.event.inputs.skip_validation }}"
           echo "Dry Run Mode: ${{ github.event.inputs.dry_run }}"
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
             echo "${{ steps.parse.outputs.dry_run_notice }}"
           fi
           echo "Triggered by: ${{ github.actor }}"
@@ -145,14 +149,16 @@ jobs:
 
       - name: Build Orchestrator Command
         id: build-cmd
+        shell: bash
         run: |
+          set -e
           CMD="python orchestrator.py -e ${{ github.event.inputs.environment }} -a ${{ steps.parse.outputs.action }}"
           
-          if [ ! -z "${{ steps.parse.outputs.clouds }}" ]; then
+          if [[ ! -z "${{ steps.parse.outputs.clouds }}" ]]; then
             CMD="$CMD -c ${{ steps.parse.outputs.clouds }}"
           fi
           
-          if [ ! -z "${{ steps.parse.outputs.modules }}" ]; then
+          if [[ ! -z "${{ steps.parse.outputs.modules }}" ]]; then
             CMD="$CMD -m ${{ steps.parse.outputs.modules }}"
           fi
           
