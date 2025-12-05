@@ -1,0 +1,213 @@
+{
+  "environments": {
+    "dev": {
+      "common": {
+        "project_name": "myapp",
+        "environment": "dev",
+        "owner": "devops-team",
+        "aws_profile": "dev-profile",
+        "aws_region": "us-east-1",
+        "azure_subscription_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "azure_tenant_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "gcp_project_id": "my-gcp-project-dev",
+        "gcp_region": "us-central1"
+      },
+      "backend": {
+        "enabled": true,
+        "s3_bucket": "dip-terraform-state-2025",
+        "s3_region": "us-east-1",
+        "dynamodb_table": "terraform-state-lock",
+        "encrypt": true,
+        "profile": "dev-profile"
+      },
+      "aws": {
+        "vpc_cidr": "172.31.0.0/16",
+        "enabled": true,
+        "modules": {
+          "compute": {
+            "instances": [
+              {
+                "name": "web-server",
+                "instance_type": "t3.micro",
+                "ami": "ami-0fa3fe0fa7920f68e",
+                "subnet_index": 0,
+                "tags": {"Role": "web", "Tier": "frontend"}
+              },
+              {
+                "name": "app-server",
+                "instance_type": "t3.micro",
+                "ami": "ami-0fa3fe0fa7920f68e",
+                "subnet_index": 0,
+                "tags": {"Role": "application", "Tier": "backend"}
+              }
+            ]
+          }
+        }
+      },
+      "azure": {
+        "location": "eastus",
+        "vnet_cidr": "10.1.0.0/16",
+        "enabled": true,
+        "modules": {
+          "network": {
+            "subnet_count": 2
+          },
+          "compute": {
+            "instances": [
+              {
+                "name": "web-vm-1",
+                "vm_size": "Standard_D2s_v3",
+                "image": {
+                  "publisher": "Canonical",
+                  "offer": "UbuntuServer",
+                  "sku": "18.04-LTS",
+                  "version": "latest"
+                },
+                "tags": {"Role": "web"}
+              },
+              {
+                "name": "app-vm-1",
+                "vm_size": "Standard_D4s_v3",
+                "image": {
+                  "publisher": "Canonical",
+                  "offer": "UbuntuServer",
+                  "sku": "18.04-LTS",
+                  "version": "latest"
+                },
+                "tags": {"Role": "application"}
+              }
+            ]
+          }
+        }
+      },
+      "gcp": {
+        "vpc_cidr": "10.2.0.0/16",
+        "enabled": false,
+        "modules": {
+          "network": {
+            "subnet_count": 2
+          },
+          "compute": {
+            "instances": [
+              {
+                "name": "web-instance-1",
+                "machine_type": "n1-standard-2",
+                "zone": "us-central1-a",
+                "image": "debian-cloud/debian-11",
+                "tags": ["web", "frontend"]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "prod": {
+      "common": {
+        "project_name": "myapp",
+        "environment": "prod",
+        "owner": "devops-team",
+        "aws_profile": "prod-profile",
+        "aws_region": "us-east-1",
+        "azure_subscription_id": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
+        "azure_tenant_id": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
+        "gcp_project_id": "my-gcp-project-prod",
+        "gcp_region": "us-central1"
+      },
+      "backend": {
+        "enabled": true,
+        "s3_bucket": "dip-terraform-state-2025",
+        "s3_region": "us-east-1",
+        "dynamodb_table": "terraform-state-lock",
+        "encrypt": true,
+        "profile": "prod-profile"
+      },
+      "aws": {
+        "vpc_cidr": "172.16.0.0/16",
+        "enabled": true,
+        "modules": {
+          "network": {
+            "subnet_count": 3,
+            "availability_zones": ["us-east-1a", "us-east-1b", "us-east-1c"]
+          },
+          "compute": {
+            "instances": [
+              {
+                "name": "web-server-1",
+                "instance_type": "t3.xlarge",
+                "ami": "ami-0c55b159cbfafe1f0",
+                "subnet_index": 0,
+                "tags": {"Role": "web"}
+              },
+              {
+                "name": "web-server-2",
+                "instance_type": "t3.xlarge",
+                "ami": "ami-0c55b159cbfafe1f0",
+                "subnet_index": 1,
+                "tags": {"Role": "web"}
+              },
+              {
+                "name": "web-server-3",
+                "instance_type": "t3.xlarge",
+                "ami": "ami-0c55b159cbfafe1f0",
+                "subnet_index": 2,
+                "tags": {"Role": "web"}
+              },
+              {
+                "name": "app-server-1",
+                "instance_type": "c5.2xlarge",
+                "ami": "ami-0c55b159cbfafe1f0",
+                "subnet_index": 0,
+                "tags": {"Role": "application"}
+              }
+            ]
+          }
+        }
+      },
+      "azure": {
+        "location": "eastus",
+        "vnet_cidr": "172.17.0.0/16",
+        "enabled": true,
+        "modules": {
+          "network": {
+            "subnet_count": 3
+          },
+          "compute": {
+            "instances": [
+              {
+                "name": "web-vm-1",
+                "vm_size": "Standard_D4s_v3",
+                "image": {
+                  "publisher": "Canonical",
+                  "offer": "UbuntuServer",
+                  "sku": "18.04-LTS",
+                  "version": "latest"
+                },
+                "tags": {"Role": "web"}
+              }
+            ]
+          }
+        }
+      },
+      "gcp": {
+        "vpc_cidr": "172.18.0.0/16",
+        "enabled": true,
+        "modules": {
+          "network": {
+            "subnet_count": 2
+          },
+          "compute": {
+            "instances": [
+              {
+                "name": "web-instance-1",
+                "machine_type": "n1-standard-4",
+                "zone": "us-central1-a",
+                "image": "debian-cloud/debian-11",
+                "tags": ["web", "frontend"]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
