@@ -10,6 +10,7 @@ terraform {
 }
 
 provider "aws" {
-  region  = var.aws_region
-  profile = var.aws_profile
+  region = var.aws_region
+  # Profile is only used in local development, not in CI/CD
+  profile = var.aws_profile != "" ? var.aws_profile : null
 }
