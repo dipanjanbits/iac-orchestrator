@@ -63,8 +63,8 @@ jobs:
           terraform_version: latest
 
       - name: Configure AWS Credentials (Method 1: Access Keys)
-        if: secrets.AWS_ACCESS_KEY_ID != ''
         continue-on-error: true
+        if: secrets.AWS_ACCESS_KEY_ID != ''
         run: |
           echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
@@ -72,8 +72,8 @@ jobs:
           echo "✓ AWS credentials configured using Access Key ID & Secret Key"
 
       - name: Configure AWS Credentials (Method 2: IAM Role - OIDC)
-        if: secrets.AWS_ACCESS_KEY_ID == '' && secrets.AWS_ROLE_TO_ASSUME != ''
         continue-on-error: true
+        if: secrets.AWS_ACCESS_KEY_ID == '' && secrets.AWS_ROLE_TO_ASSUME != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
