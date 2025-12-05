@@ -88,6 +88,16 @@ jobs:
         run: |
           echo "Verifying AWS credentials..."
           aws sts get-caller-identity
+          echo "AWS_ACCESS_KEY_ID is set: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}"
+          echo "GITHUB_ACTIONS environment variable: $GITHUB_ACTIONS"
+      
+      - name: Clean Terraform Cache
+        run: |
+          echo "Cleaning any cached Terraform files..."
+          find . -type d -name ".terraform" -exec rm -rf {} + 2>/dev/null || true
+          find . -type f -name "terraform.tfvars.json" -delete 2>/dev/null || true
+          find . -type f -name "backend.hcl" -delete 2>/dev/null || true
+          find . -type f -name ".terraform.lock.hcl" -delete 2>/dev/null || true
       
       - name: Prepare Environment
         run: |
